@@ -2,7 +2,7 @@ from data_provider.data_factory import data_provider
 from exp.exp_basic import Exp_Basic
 from utils.tools import EarlyStopping, adjust_learning_rate, adjustment
 from sklearn.metrics import precision_recall_fscore_support
-from sklearn.metrics import accuracy_score, confusion_matrix
+from sklearn.metrics import accuracy_score, confusion_matrix, roc_auc_score
 import torch.multiprocessing
 from models import MTCL
 from torch.optim import lr_scheduler
@@ -259,8 +259,15 @@ class Exp_Anomaly_Detection(Exp_Basic):
         print("pred:   ", pred.shape)
         print("gt:     ", gt.shape)
         
-        # 将gt中所有非零值置为1，并设为gt_new
+        # 将gt中所有非零值置为1
         gt = np.where(gt != 0, 1, 0)
+
+        # AUROC without point adjustment (uses continuous anomaly scores)
+        try:
+            auroc = roc_auc_score(gt, test_energy)
+        except ValueError:
+            auroc = float('nan')
+        print("AUROC (without point adjustment) : {:0.4f}".format(auroc))
 
         # (4) detection adjustment
         gt, pred = adjustment(gt, pred)
@@ -290,16 +297,25 @@ class Exp_Anomaly_Detection(Exp_Basic):
 
         accuracy = accuracy_score(gt, pred)
         precision, recall, f_score, support = precision_recall_fscore_support(gt, pred, average='binary')
-        print("Accuracy : {:0.4f}, Precision : {:0.4f}, Recall : {:0.4f}, F-score : {:0.4f}, FPR : {:0.4f}, FNR : {:0.4f}".format(
+        print("With point adjustment | Accuracy : {:0.4f}, Precision : {:0.4f}, Recall : {:0.4f}, F-score : {:0.4f}, FPR : {:0.4f}, FNR : {:0.4f}".format(
             accuracy, precision,
             recall, f_score, fpr, fnr))
 
         f = open("result_anomaly_detection.txt", 'a')
         f.write(setting + "  \n")
-        f.write("Accuracy : {:0.4f}, Precision : {:0.4f}, Recall : {:0.4f}, F-score : {:0.4f}, FPR : {:0.4f}, FNR : {:0.4f}".format(
+        f.write("AUROC (without point adjustment) : {:0.4f}\n".format(auroc))
+        f.write("With point adjustment | Accuracy : {:0.4f}, Precision : {:0.4f}, Recall : {:0.4f}, F-score : {:0.4f}, FPR : {:0.4f}, FNR : {:0.4f}".format(
             accuracy, precision,
             recall, f_score, fpr, fnr))
         f.write('\n')
         f.write('\n')
         f.close()
-        return
+        return {
+            'auroc': auroc,
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1': f_score,
+            'fpr': fpr,
+            'fnr': fnr,
+        }
